@@ -51,6 +51,15 @@ public:
 				}
 			}
 
+			if (event.type == SDL_MOUSEBUTTONDOWN)
+			{
+				if(event.button.button == 1 &&
+				   event.button.state == SDL_PRESSED)
+				{
+					_should_go_fullscreen ^= true;
+				}
+			}
+
 			if (event.type == SDL_VIDEORESIZE)
 			{
 				int w = event.resize.w;

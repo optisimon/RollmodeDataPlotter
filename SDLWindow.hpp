@@ -45,13 +45,20 @@ public:
 		_fullscreenWidth = nativeMode->current_w;
 		_fullscreenHeight = nativeMode->current_h;
 
+		if (_smallSizeWidth > _fullscreenWidth) {
+			_w = _smallSizeWidth = _fullscreenWidth;
+		}
+		if (_smallSizeHeight > _fullscreenHeight) {
+			_h = _smallSizeHeight = _fullscreenHeight - 12; // 12 is just a guess of the height of the window managers title bar
+		}
+
 		_screen = SDL_SetVideoMode(_w, _h, 32, SDL_HWSURFACE/*|SDL_DOUBLEBUF*/);
 		if ( _screen == NULL )
 		{
 			printf("Unable to set %dx%d video: %s\n", _w, _h, SDL_GetError());
 			exit(1);
 		}
-		SDL_WM_SetCaption("RPM Revolution Meter", "RPM Meter");
+		SDL_WM_SetCaption("RollModeDataPlotter", "Data Plotter");
 		clear();
 	}
 
