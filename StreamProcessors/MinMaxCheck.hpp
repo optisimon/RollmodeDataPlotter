@@ -11,6 +11,7 @@
 
 #include <limits>
 #include <deque>
+#include <stdint.h>
 
 /**
  * Determines minimum and maximum value that has been passed during

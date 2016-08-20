@@ -13,7 +13,7 @@
 #include <SDL/SDL_gfxPrimitives.h>
 #include <SDL/SDL_gfxPrimitives_font.h>
 
-//#include <iostream>
+#include <iostream>
 
 #include <assert.h>
 
@@ -90,7 +90,7 @@ public:
 			flags = SDL_HWSURFACE /*|SDL_DOUBLEBUF*/;
 		}
 
-		printf("Requested: %dx%d\n", _w, _h);
+//		printf("Requested: %dx%d\n", _w, _h);
 		_screen = SDL_SetVideoMode(_w, _h, 32, flags);
 		if ( _screen == NULL )
 		{
@@ -121,6 +121,11 @@ public:
 				0,
 				"ESC = quit, F11 = toggle fullscreen",
 				255, 255, 255, 255);
+	}
+
+	void drawString(int x, int y, const char* s)
+	{
+		stringRGBA(_screen, x, y, s, 255, 255, 255, 255);
 	}
 
 	void drawLine(Sint16 x1, Sint16 y1,

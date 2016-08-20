@@ -7,6 +7,14 @@
  *  Do whatever you like with this code, but please refer to me as the original author.
  */
 
+
+// TODO: Create a capped storage waveform storing both min and max values
+// TODO: how much data should we save? Should we always show everything?
+// TODO: Should we allow zoom?
+// TODO: Should we have a proper roll mode?
+// TODO: Should we allow setting axis somehow?
+// TODO: With multiple plots, how do we handle missing data for one of them without timestamps?
+
 #include <string.h>
 
 #include "StreamProcessors/CappedPeakStorageWaveform.hpp"
@@ -42,119 +50,6 @@ struct Waveform {
 std::vector<Waveform> g_waveforms;
 static std::mutex g_waveforms_mutex;
 
-// TODO: Also update waveform even when not triggering on anything. (roll mode)
-
-class RPMCalculatorFromAudio {
-public:
-	RPMCalculatorFromAudio(int audioSampleRate, int divisor) :
-		_audioSampleRate(audioSampleRate),
-		_divisor(divisor),
-		_periodCounter(0),
-		_minMax(audioSampleRate / 5, 13),
-		_slidingAverageRpmCalculator(10),
-		_thresholdInPercentage(0),
-		_threshold(0),
-		_hysteresis(0),
-		_state(Uninitialized),
-		_numStoredWaveforms(0),
-		_numWaveformsBeforeDelivery(3)
-	{
-
-	}
-
-	void check(int16_t sample)
-	{
-		_minMax.check(sample);
-		_waveform.push(sample);
-
-		_periodCounter++;
-		switch(_state)
-		{
-		case Uninitialized:
-			if (sample >= _threshold)
-			{
-				_state = WasAbove;
-				_threshold = sample;
-				_periodCounter = 0;
-			}
-			break;
-
-		case WasBelow:
-			if (sample >= _threshold + _hysteresis)
-			{
-				_state = WasAbove;
-				_periodCounter = std::max<long>(_periodCounter, 1);
-
-				double rpm = ((60.0 * _audioSampleRate) / _periodCounter ) / _divisor;
-
-				std::cout
-				<< "PeriodCounter=" << _periodCounter
-				<< ", rpm=" << rpm
-				<< ", threshold=" << int(_threshold)
-				<< ", hysteresis=" << int(_hysteresis)
-				<< ", minMax.min=" << _minMax.getMin()
-				<< ", minMax.max=" << _minMax.getMax()
-				 << "\n";
-
-				_slidingAverageRpmCalculator.push(rpm);
-				_periodCounter = 0;
-				
-				_numStoredWaveforms++;
-
-				if (_numStoredWaveforms >= _numWaveformsBeforeDelivery)
-				{
-					std::lock_guard<std::mutex> guard(g_period_waveform_mutex);
-
-					const std::vector<int16_t>& waveform = _waveform.getWaveform();
-					g_period_waveform.resize(waveform.size());
-
-//					int min = _minMax.getMin();
-//					int max = _minMax.getMax();
-
-					for (size_t i = 0; i < waveform.size(); i++)
-					{
-						g_period_waveform[i] = waveform[i];
-					}
-					g_period_waveform_updated = true;
-					_waveform.clear();
-					_numStoredWaveforms = 0;
-				}
-			}
-			break;
-
-		case WasAbove:
-			if (sample < _threshold - _hysteresis)
-			{
-				_state = WasBelow;
-			}
-			break;
-		}
-	}
-
-private:
-	int _audioSampleRate;
-	int _divisor;
-	long _periodCounter;
-
-	MinMaxCheck _minMax;
-	SlidingAverager _slidingAverageRpmCalculator;
-	int _thresholdInPercentage;
-	double _threshold;
-	double _hysteresis;
-
-	enum State {
-		Uninitialized,
-		WasBelow,
-		WasAbove
-	};
-
-	State _state;
-
-	int _numStoredWaveforms;
-	const int _numWaveformsBeforeDelivery;
-
-	CappedStorageWaveform _waveform;
-};
 
 std::vector<double> getTickmarkSuggestion(double min, double max, int maxNumTicks = 10)
 {
@@ -209,14 +104,7 @@ void sdlDisplayThread()
 			std::vector<Waveform> period_waveforms;
 			{
 				std::lock_guard<std::mutex> guard(g_waveforms_mutex);
-				
 				period_waveforms = g_waveforms;
-//				period_waveform.resize(peakWaveform.size());
-				
-//				for (size_t i = 0; i < g_period_waveform.size(); i++)
-//				{
-//					period_waveform[i] = peakWaveform[i];
-//				}
 			}
 
 			int signalMin = std::numeric_limits<int>::max();
@@ -338,8 +226,12 @@ void sdlDisplayThread()
 
 int main (int argc, char *argv[])
 {
+  std::string inputFileName = "/dev/stdin";
   std::string xPrefix;
-  std::string yPrefix;
+  std::map<std::string, size_t> yPrefixes;
+
+
+
   int showHelp_flag = 0;
 
   while(true)
@@ -394,16 +286,23 @@ int main (int argc, char *argv[])
 
         case 'f':
           printf ("option -f with value `%s'\n", optarg);
+          inputFileName = optarg;
           break;
           
         case 'x':
-          printf ("option -x with value `%s'\n", optarg);
-          xPrefix = optarg;
+          //printf ("option -x with value `%s'\n", optarg);
+          //xPrefix = optarg;
           break;
 
         case 'y':
           printf ("option -y with value `%s'\n", optarg);
-          yPrefix = optarg;
+          {
+			  int size = yPrefixes.size();
+			  yPrefixes[optarg] = size;
+			  Waveform w;
+			  w.prefix = optarg;
+			  g_waveforms.push_back(w);
+          }
           break;
 
         case '?':
@@ -421,51 +320,46 @@ int main (int argc, char *argv[])
 		"%s [options]\n"
 		"-v, --verbose \n"
 		"-b, --brief\n"
-		"-m, --mic          Use mic directly (alsa hw:0,0)\n"
-		"-d, --rpm_divisor  Number to divide pulse frequency with"
 		"-h, --help\n"
-		"-f, --file FILENAME.WAV\n"
+		"-f, --file file_with_reading\n"
+		"-y prefix_of_number_to_plot\n"
+		"\n"
+		"Note that the -y argument require a prefix (including everything from the start of the line,\n"
+		"even all white spaces before the number, and that the number should be followed by a newline.\n"
 		"\n", argv[0]
 		);
 		return 1;
 	}
 
-
-//	sdlDisplayThread();
 	std::thread thread1(sdlDisplayThread);
 
 	std::string line;
-	double x = 0;
 	double y = 0;
-	bool newX = false;
-	bool newY = false;
-	while (getline(std::cin, line))
+	std::ifstream in(inputFileName.c_str());
+	while (!quit && getline(in, line))
 	{
-		if (newY)
-		{
-			std::lock_guard<std::mutex> guard(g_period_waveform_mutex);
-			g_period_waveform.push_back(y*1024);
-			newY = false;
-		}
+		usleep(1);
 
 		if (xPrefix.size() && line.find(xPrefix) != line.npos)
 		{
 			// found an x-prefix.
-			x = std::atof(line.substr(xPrefix.size()).c_str());
-			std::cout << "X_PREFIXED LINE: \"" << line << "\" (" << x << ")\n";
-			newX = true;
+//			x = std::atof(line.substr(xPrefix.size()).c_str());
+			//printf("X_PREFIXED LINE: \"%s\" (%f)\n", line.c_str(), x);
+//			newX = true;
 			continue;
 		}
-		else if (yPrefix.size() && line.find(yPrefix) != line.npos)
+		
+		for (auto& tmp : yPrefixes)
 		{
-			y = std::atof(line.substr(yPrefix.size()).c_str());
-			std::cout << "Y_PREFIXED LINE: \"" << line << "\" (" << y << ")\n";
-			newY = true;
-			continue;
-		}
-		else
-		{
-			std::cout << "SKIPPED LINE: " << line << "\n";
+			const std::string& yPrefix = tmp.first;
+			if (line.find(yPrefix) != line.npos)
+			{
+				y = std::atof(line.substr(yPrefix.size()).c_str());
+							
+				std::lock_guard<std::mutex> guard(g_waveforms_mutex);
+				g_waveforms[tmp.second].peakWaveform.push(y);
+				continue;
+			}
 		}
 	}
 
