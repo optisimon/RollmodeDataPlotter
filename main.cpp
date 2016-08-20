@@ -152,6 +152,47 @@ private:
 	CappedStorageWaveform _waveform;
 };
 
+std::vector<double> getTickmarkSuggestion(double min, double max, int maxNumTicks = 10)
+{
+	double dy_if_requested_ticks = (max - min) / maxNumTicks;
+
+	double exponent = floor(log10(dy_if_requested_ticks));
+
+	// tmp is the dy increment, but scaled by 10^(-exponent) to always be a single
+	// digit in front of the decimal point.
+	double tmp = dy_if_requested_ticks / (pow10(exponent));
+
+	//
+	// We want ticks to have one of these forms
+	//
+	double valid[] = {1, 1.25, 1.5, 2, 2.5, 5, 10};
+
+	double ticToUse = 1;
+	for (size_t i = 0; i < sizeof(valid)/sizeof(valid [0]); i++)
+	{
+		if ( tmp <= valid[i])
+		{
+			ticToUse = valid[i];
+			break;
+		}
+
+	}
+	double dy = ticToUse * pow10(exponent);
+
+	//
+	// find closest value below min matching a dy multiplier
+	//
+	double nMin = floor(min / dy);
+	double bottom = nMin * dy;
+
+	std::vector<double> tics;
+	for (double tic = bottom; tic <= max; tic += dy)
+	{
+		tics.push_back(tic);
+	}
+	return tics;
+}
+
 
 void sdlDisplayThread()
 {
