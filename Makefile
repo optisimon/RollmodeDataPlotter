@@ -8,7 +8,7 @@ RollmodeDataPlotter_LIBS= $(LIBS)
 
 unittest_OBJS= \
 	unittests/test.o \
-	unittests/CappedStorageWaveform_Test.o \
+	unittests/CappedPeakStorageWaveform_Test.o \
 	unittests/MinMaxCheck_Test.o \
 	unittests/SlidingAverager_Test.o
 unittest_LIBS= $(LIBS) -lboost_unit_test_framework

@@ -9,7 +9,7 @@
 
 #include <string.h>
 
-#include "StreamProcessors/CappedStorageWaveform.hpp"
+#include "StreamProcessors/CappedPeakStorageWaveform.hpp"
 #include "StreamProcessors/MinMaxCheck.hpp"
 #include "StreamProcessors/SlidingAverager.hpp"
 #include "SDLWindow.hpp"
@@ -26,6 +26,7 @@
 #include <iostream>
 #include <atomic>
 #include <vector>
+#include <map>
 #include <string>
 #include <thread>
 #include <mutex>
@@ -34,9 +35,12 @@ int verbose_flag = 0;
 
 static std::atomic<bool> quit(false);
 
-static std::vector<int16_t> g_period_waveform;
-static bool g_period_waveform_updated = false;
-static std::mutex g_period_waveform_mutex;
+struct Waveform {
+	std::string prefix;
+	CappedPeakStorageWaveform<double>  peakWaveform;
+};
+std::vector<Waveform> g_waveforms;
+static std::mutex g_waveforms_mutex;
 
 // TODO: Also update waveform even when not triggering on anything. (roll mode)
 
@@ -201,45 +205,113 @@ void sdlDisplayThread()
 	while(!quit)
 	{
 		win.drawTopText();
-		// TODO: move things around (so stats is locked when accessing it, or we have a copy of it)
 		{
-			std::vector<int16_t> period_waveform;
+			std::vector<Waveform> period_waveforms;
 			{
-				std::lock_guard<std::mutex> guard(g_period_waveform_mutex);
-				period_waveform.resize(g_period_waveform.size());
-				for (size_t i = 0; i < g_period_waveform.size(); i++)
-				{
-					period_waveform[i] = g_period_waveform[i];
-				}
+				std::lock_guard<std::mutex> guard(g_waveforms_mutex);
+				
+				period_waveforms = g_waveforms;
+//				period_waveform.resize(peakWaveform.size());
+				
+//				for (size_t i = 0; i < g_period_waveform.size(); i++)
+//				{
+//					period_waveform[i] = peakWaveform[i];
+//				}
 			}
-
-			int width = win.getWidth();
-			int height = win.getHeight();
-			double xScaling = width * 1.0 / period_waveform.size();
 
 			int signalMin = std::numeric_limits<int>::max();
 			int signalMax = std::numeric_limits<int>::min();
 
-			for (const auto& val : period_waveform)
+			for (auto & waveform : period_waveforms)
 			{
-				if (val < signalMin) { signalMin = val; }
-				if (val > signalMax) { signalMax = val; }
+				const std::vector<CappedPeakStorageWaveform<double>::MinMax> & period_waveform = waveform.peakWaveform.getWaveform();
+				for (const auto& val : period_waveform)
+				{
+					if (val.min < signalMin) { signalMin = val.min; }
+					if (val.max > signalMax) { signalMax = val.max; }
+				}
 			}
 
-			const auto & convertY = [&](int sample) {
-				int tmp = (sample - signalMin) * 255.0 / (signalMax - signalMin);
-				return height - 1 - tmp;
-			};
 
-			for (int i = 0; i < int(period_waveform.size())-1; i++)
+			bool ticsWasDrawn = false;
+
+			for (auto & waveform : period_waveforms)
 			{
-				win.drawLine(
-						i * xScaling,
-						convertY(period_waveform[i]),
-						(i+1) * xScaling,
-						convertY(period_waveform[i+1]),
-						255, 255, 255, 255
-				);
+				const std::vector<CappedPeakStorageWaveform<double>::MinMax> & period_waveform = waveform.peakWaveform.getWaveform();
+
+				int width = win.getWidth();
+				int height = win.getHeight();
+
+				const auto & convertY = [&](int sample) {
+					int tmp = (sample - signalMin) * (height-30) * 1.0 / (signalMax - signalMin);
+					return height - 1 - tmp;
+				};
+				const auto & convertX = [&](int x) {
+					int leftPad = 60;
+					int tmp = x * (width - leftPad) *1.0 / period_waveform.size();
+					return leftPad + tmp;
+				};
+
+
+				if (!ticsWasDrawn)
+				{
+					//
+					// Draw horizontal help lines
+					//
+					const std::vector<double> tics =
+							getTickmarkSuggestion(signalMin, signalMax, /*maxNumTicks*/ 10);
+
+					for (const auto& y : tics)
+					{
+						win.drawLine(
+								convertX(0),
+								convertY(y),
+								convertX(period_waveform.size() - 1),
+								convertY(y),
+								64, 64, 64, 255
+						);
+						char buffer[200];
+						snprintf(buffer, sizeof(buffer), "%.2f", y);
+
+						win.drawString(0, convertY(y), buffer);
+					}
+
+					ticsWasDrawn = true;
+				}
+
+
+				for (int i = 0; i < int(period_waveform.size())-1; i++)
+				{
+					win.drawLine(
+							convertX(i),
+							convertY(period_waveform[i].min),
+							convertX(i),
+							convertY(period_waveform[i].max),
+							255, 255, 255, 255
+					);
+				}
+				
+//				for (int i = 0; i < int(period_waveform.size())-1; i++)
+//				{
+//					win.drawLine(
+//							convertX(i),
+//							convertY(period_waveform[i].min),
+//							convertX(i+1),
+//							convertY(period_waveform[i+1].min),
+//							32, 32, 255, 255
+//					);
+//				}
+				
+				for (int i = 0; i < int(period_waveform.size())-1; i++)
+				{
+					win.drawLine(
+							convertX(i),
+							convertY(period_waveform[i].max),
+							convertX(i+1),
+							convertY(period_waveform[i+1].max),
+							255, 255, 255, 255
+					);
+				}
 			}
 		}
 
