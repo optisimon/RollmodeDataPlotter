@@ -12,7 +12,8 @@
 // TODO: how much data should we save? Should we always show everything?
 // TODO: Should we allow zoom?
 // TODO: Should we have a proper roll mode?
-// TODO: Should we allow setting axis somehow?
+// TODO: Only Y-axis override added yet. What to do with X axis? What if we want to fix
+//       certain but not all min/max values?
 // TODO: With multiple plots, how do we handle missing data for one of them without timestamps?
 
 #include <string.h>
@@ -35,9 +36,11 @@
 #include <atomic>
 #include <vector>
 #include <map>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <mutex>
+
 
 int verbose_flag = 0;
 
@@ -49,6 +52,41 @@ struct Waveform {
 };
 std::vector<Waveform> g_waveforms;
 static std::mutex g_waveforms_mutex;
+
+
+struct Axis {
+	  double minx;
+	  double maxx;
+	  double miny;
+	  double maxy;
+	  Axis() :
+		  minx(std::numeric_limits<double>::quiet_NaN()),
+		  maxx(std::numeric_limits<double>::quiet_NaN()),
+		  miny(std::numeric_limits<double>::quiet_NaN()),
+		  maxy(std::numeric_limits<double>::quiet_NaN())
+	  {
+
+	  }
+
+	  bool isValidX() const { return (minx == minx); }
+
+	  bool isValidY() const { return (miny == miny); }
+
+	  void setX(double minx, double maxx)
+	  {
+		  this->minx = minx;
+		  this->maxx = maxx;
+	  }
+
+	  void setY(double miny, double maxy)
+	  {
+		  this->miny = miny;
+		  this->maxy = maxy;
+	  }
+};
+
+Axis axis;
+
 
 
 std::vector<double> getTickmarkSuggestion(double min, double max, int maxNumTicks = 10)
@@ -118,6 +156,13 @@ void sdlDisplayThread()
 					if (val.min < signalMin) { signalMin = val.min; }
 					if (val.max > signalMax) { signalMax = val.max; }
 				}
+			}
+
+			// If external constraints on axis, follow those
+			if (axis.isValidY())
+			{
+				signalMin = axis.miny;
+				signalMax = axis.maxy;
 			}
 
 
@@ -230,8 +275,6 @@ int main (int argc, char *argv[])
   std::string xPrefix;
   std::map<std::string, size_t> yPrefixes;
 
-
-
   int showHelp_flag = 0;
 
   while(true)
@@ -246,11 +289,12 @@ int main (int argc, char *argv[])
           /* These options don’t set a flag.
              We distinguish them by their indices. */
           {"file",    required_argument, 0, 'f'},
+		  {"axis",    required_argument, 0, 'a'},
           {0, 0, 0, 0}
         };
       /* getopt_long stores the option index here. */
       int option_index = 0;
-      c = getopt_long (argc, argv, "vbhf:x:y:",
+      c = getopt_long (argc, argv, "a:vbhf:x:y:",
                        long_options, &option_index);
 
       /* Detect the end of the options. */
@@ -268,6 +312,20 @@ int main (int argc, char *argv[])
             printf (" with arg %s", optarg);
           printf ("\n");
           break;
+
+        case 'a':
+        {
+        	// --axis "minx maxx miny maxy"
+        	std::istringstream is(optarg);
+        	is >> axis.minx >> axis.maxx >> axis.miny >> axis.maxy;
+        	if ((!is.eof()) || (!is))
+        	{
+        		std::cout << "ERROR: Unable to parse axis settings \"" << optarg << "\"\n";
+        		return 1;
+        	}
+        	break;
+
+        }
 
         case 'v':
           verbose_flag = 1;
@@ -323,6 +381,7 @@ int main (int argc, char *argv[])
 		"-h, --help\n"
 		"-f, --file file_with_reading\n"
 		"-y prefix_of_number_to_plot\n"
+		"-a, --axis \"xmin xmax ymin ymax\" Override plot axis (only caring about Y at the moment)\n"
 		"\n"
 		"Note that the -y argument require a prefix (including everything from the start of the line,\n"
 		"even all white spaces before the number, and that the number should be followed by a newline.\n"
