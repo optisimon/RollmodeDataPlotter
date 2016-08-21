@@ -15,10 +15,12 @@
 // TODO: Only Y-axis override added yet. What to do with X axis? What if we want to fix
 //       certain but not all min/max values?
 // TODO: With multiple plots, how do we handle missing data for one of them without timestamps?
+// TODO: Refactor sdlDisplayThread
 
 #include <string.h>
 
 #include "StreamProcessors/CappedPeakStorageWaveform.hpp"
+#include "StreamProcessors/FIFOStorageWaveform.hpp"
 #include "StreamProcessors/MinMaxCheck.hpp"
 #include "StreamProcessors/SlidingAverager.hpp"
 #include "SDLWindow.hpp"
@@ -47,9 +49,29 @@ int verbose_flag = 0;
 static std::atomic<bool> quit(false);
 
 struct Waveform {
+	Waveform() : peakWaveform(0)
+	{ }
+	~Waveform() {
+		delete peakWaveform;
+		peakWaveform = 0;
+	}
+	Waveform (const Waveform& other) : prefix(other.prefix), peakWaveform(0)
+	{
+		if (other.peakWaveform)
+		{
+			peakWaveform = other.peakWaveform->duplicate();
+		}
+	}
+	Waveform& operator=(const Waveform& w)
+	{
+		prefix = w.prefix;
+		peakWaveform = peakWaveform->duplicate();
+		return *this;
+	}
 	std::string prefix;
-	CappedPeakStorageWaveform<double>  peakWaveform;
+	IWaveformStorage<double>*  peakWaveform;
 };
+
 std::vector<Waveform> g_waveforms;
 static std::mutex g_waveforms_mutex;
 
@@ -87,6 +109,21 @@ struct Axis {
 
 Axis axis;
 
+enum DisplayMode {
+	SQUEZE,
+
+	ROLL_NY,
+//	ROLL_TY,
+//	ROLL_XY,
+
+//	PLOT_XY,
+//	PLOT_XYN,
+//	PLOT_XYT,
+};
+
+DisplayMode displayMode = SQUEZE;
+
+int numSamples = 4096;
 
 
 std::vector<double> getTickmarkSuggestion(double min, double max, int maxNumTicks = 10)
@@ -150,7 +187,7 @@ void sdlDisplayThread()
 
 			for (auto & waveform : period_waveforms)
 			{
-				const std::vector<CappedPeakStorageWaveform<double>::MinMax> & period_waveform = waveform.peakWaveform.getWaveform();
+				const std::vector<MinMax<double> > & period_waveform = waveform.peakWaveform->getWaveform();
 				for (const auto& val : period_waveform)
 				{
 					if (val.min < signalMin) { signalMin = val.min; }
@@ -170,7 +207,7 @@ void sdlDisplayThread()
 
 			for (auto & waveform : period_waveforms)
 			{
-				const std::vector<CappedPeakStorageWaveform<double>::MinMax> & period_waveform = waveform.peakWaveform.getWaveform();
+				const std::vector<MinMax<double> > & period_waveform = waveform.peakWaveform->getWaveform();
 
 				int width = win.getWidth();
 				int height = win.getHeight();
@@ -181,7 +218,11 @@ void sdlDisplayThread()
 				};
 				const auto & convertX = [&](int x) {
 					int leftPad = 60;
-					int tmp = x * (width - leftPad) *1.0 / period_waveform.size();
+					int tmp;
+					if (displayMode == DisplayMode::ROLL_NY)
+						tmp = x * (width - leftPad) *1.0 / numSamples;
+					else
+						tmp = x * (width - leftPad) *1.0 / period_waveform.size();
 					return leftPad + tmp;
 				};
 
@@ -199,7 +240,7 @@ void sdlDisplayThread()
 						win.drawLine(
 								convertX(0),
 								convertY(y),
-								convertX(period_waveform.size() - 1),
+								width - 1,
 								convertY(y),
 								64, 64, 64, 255
 						);
@@ -215,13 +256,27 @@ void sdlDisplayThread()
 
 				for (int i = 0; i < int(period_waveform.size())-1; i++)
 				{
-					win.drawLine(
-							convertX(i),
-							convertY(period_waveform[i].min),
-							convertX(i),
-							convertY(period_waveform[i].max),
-							255, 255, 255, 255
-					);
+					if (displayMode == DisplayMode::SQUEZE)
+					{
+						win.drawLine(
+								convertX(i),
+								convertY(period_waveform[i].min),
+								convertX(i),
+								convertY(period_waveform[i].max),
+								255, 255, 255, 255
+						);
+					}
+					else if (displayMode == DisplayMode::ROLL_NY)
+					{
+						int emptySamples = numSamples-period_waveform.size();
+						win.drawLine(
+								convertX(i + emptySamples),
+								convertY(period_waveform[i].min),
+								convertX(i + emptySamples),
+								convertY(period_waveform[i].max),
+								255, 255, 255, 255
+						);
+					}
 				}
 				
 //				for (int i = 0; i < int(period_waveform.size())-1; i++)
@@ -237,13 +292,29 @@ void sdlDisplayThread()
 				
 				for (int i = 0; i < int(period_waveform.size())-1; i++)
 				{
-					win.drawLine(
-							convertX(i),
-							convertY(period_waveform[i].max),
-							convertX(i+1),
-							convertY(period_waveform[i+1].max),
-							255, 255, 255, 255
-					);
+					if (displayMode == DisplayMode::SQUEZE)
+					{
+						win.drawLine(
+								convertX(i),
+								convertY(period_waveform[i].max),
+								convertX(i+1),
+								convertY(period_waveform[i+1].max),
+								255, 255, 255, 255
+						);
+					}
+					else if (displayMode == DisplayMode::ROLL_NY)
+					{
+						int emptySamples = numSamples-period_waveform.size();
+						win.drawLine(
+								convertX(i + emptySamples),
+								convertY(period_waveform[i].max),
+								convertX(i+1 + emptySamples),
+								convertY(period_waveform[i+1].max),
+								255, 255, 255, 255
+						);
+					}
+
+
 				}
 			}
 		}
@@ -290,11 +361,12 @@ int main (int argc, char *argv[])
              We distinguish them by their indices. */
           {"file",    required_argument, 0, 'f'},
 		  {"axis",    required_argument, 0, 'a'},
+		  {"mode",    required_argument, 0, 'm'},
           {0, 0, 0, 0}
         };
       /* getopt_long stores the option index here. */
       int option_index = 0;
-      c = getopt_long (argc, argv, "a:vbhf:x:y:",
+      c = getopt_long (argc, argv, "a:vbhf:m:n:x:y:",
                        long_options, &option_index);
 
       /* Detect the end of the options. */
@@ -324,7 +396,32 @@ int main (int argc, char *argv[])
         		return 1;
         	}
         	break;
+        }
 
+        case 'm':
+        {
+        	// --mode squeze|roll_ny
+        	if (strcmp("squeze", optarg) == 0)
+        	{
+        		displayMode = DisplayMode::SQUEZE;
+        	}
+        	else if (strcmp("roll_ny", optarg) == 0)
+        	{
+        		displayMode = DisplayMode::ROLL_NY;
+        	}
+        	break;
+        }
+
+        case 'n':
+        {
+        	std::istringstream is(optarg);
+        	is >> numSamples;
+        	if ((!is.eof()) || (!is))
+        	{
+        		std::cout << "ERROR: Unable to parse -n setting \"" << optarg << "\"\n";
+        		return 1;
+        	}
+        	break;
         }
 
         case 'v':
@@ -359,6 +456,7 @@ int main (int argc, char *argv[])
 			  yPrefixes[optarg] = size;
 			  Waveform w;
 			  w.prefix = optarg;
+			  w.peakWaveform = 0;
 			  g_waveforms.push_back(w);
           }
           break;
@@ -382,13 +480,30 @@ int main (int argc, char *argv[])
 		"-f, --file file_with_reading\n"
 		"-y prefix_of_number_to_plot\n"
 		"-a, --axis \"xmin xmax ymin ymax\" Override plot axis (only caring about Y at the moment)\n"
+		"-m, --mode squeze|roll_ny   Sets display mode (squeze is default)\n"
+		"    squeze fits all data into the current window\n"
+		"    roll_ny rolls the data so only the last n samples are visible (specify n with -n )\n"
+		"-n NUMBER Number of samples to span the full screen (in modes supporting that). Defaults to %d\n"
 		"\n"
 		"Note that the -y argument require a prefix (including everything from the start of the line,\n"
 		"even all white spaces before the number, and that the number should be followed by a newline.\n"
-		"\n", argv[0]
+		"\n", argv[0], numSamples
 		);
 		return 1;
 	}
+
+    for (auto & waveform : g_waveforms)
+    {
+    	switch(displayMode)
+    	{
+    	case DisplayMode::SQUEZE:
+    		waveform.peakWaveform = new CappedPeakStorageWaveform<double>(numSamples);
+    		break;
+    	case DisplayMode::ROLL_NY:
+    		waveform.peakWaveform = new FIFOStorageWaveform<double>(numSamples);
+    		break;
+    	}
+    }
 
 	std::thread thread1(sdlDisplayThread);
 
@@ -416,7 +531,7 @@ int main (int argc, char *argv[])
 				y = std::atof(line.substr(yPrefix.size()).c_str());
 							
 				std::lock_guard<std::mutex> guard(g_waveforms_mutex);
-				g_waveforms[tmp.second].peakWaveform.push(y);
+				g_waveforms[tmp.second].peakWaveform->push(y);
 				continue;
 			}
 		}

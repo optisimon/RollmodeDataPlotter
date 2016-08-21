@@ -9,34 +9,19 @@
 
 #pragma once
 
-#include <assert.h>
 
-#include <limits>
+#include "IWaveformStorage.hpp"
+#include "MinMax.hpp"
+
 #include <vector>
+
+#include <assert.h>
 #include <stdint.h>
 
+
 template<class T>
-class CappedPeakStorageWaveform {
+class CappedPeakStorageWaveform : public IWaveformStorage<T> {
 public:
-	struct MinMax {
-		MinMax() {
-			reset();
-		}
-		MinMax(T min, T max) : min(min), max(max)
-		{ }
-		void update (T val)
-		{
-			if (val > max) { max = val; }
-			if (val < min) { min = val; }
-		}
-		void reset()
-		{
-			min = std::numeric_limits<T>::max();
-			max = std::numeric_limits<T>::min();
-		}
-		T min;
-		T max;
-	};
 	
 	CappedPeakStorageWaveform(int maxWaveformSize = 4096) :
 	_maxWaveformSize(maxWaveformSize),
@@ -81,8 +66,18 @@ public:
 		_skipCounter++;
 	}
 
-	const std::vector<MinMax>& getWaveform() const {
+	const std::vector<MinMax<T> >& getWaveform() const {
 		return _waveform;
+	}
+
+	IWaveformStorage<T>* duplicate() const
+	{
+		CappedPeakStorageWaveform* w = new CappedPeakStorageWaveform(_maxWaveformSize);
+		w->_waveformNumSamplesSkip = _waveformNumSamplesSkip;
+		w->_skipCounter = _skipCounter;
+		w->_currentMinMax = _currentMinMax;
+		w->_waveform = _waveform;
+		return w;
 	}
 
 	void clear()
@@ -97,6 +92,6 @@ private:
 	size_t _maxWaveformSize;
 	size_t _waveformNumSamplesSkip;
 	size_t _skipCounter;
-	MinMax _currentMinMax;
-	std::vector<MinMax> _waveform;
+	MinMax<T> _currentMinMax;
+	std::vector<MinMax<T> > _waveform;
 };
