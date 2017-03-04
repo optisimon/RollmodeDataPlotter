@@ -182,8 +182,8 @@ void sdlDisplayThread()
 				period_waveforms = g_waveforms;
 			}
 
-			int signalMin = std::numeric_limits<int>::max();
-			int signalMax = std::numeric_limits<int>::min();
+			double signalMin = std::numeric_limits<double>::max();
+			double signalMax = std::numeric_limits<double>::min();
 
 			for (auto & waveform : period_waveforms)
 			{
@@ -212,13 +212,13 @@ void sdlDisplayThread()
 				int width = win.getWidth();
 				int height = win.getHeight();
 
-				const auto & convertY = [&](int sample) {
-					int tmp = (sample - signalMin) * (height-30) * 1.0 / (signalMax - signalMin);
+				const auto & convertY = [&](double sample) {
+					double tmp = (sample - signalMin) * (height-30) * 1.0 / (signalMax - signalMin);
 					return height - 1 - tmp;
 				};
-				const auto & convertX = [&](int x) {
+				const auto & convertX = [&](double x) {
 					int leftPad = 60;
-					int tmp;
+					double tmp;
 					if (displayMode == DisplayMode::ROLL_NY)
 						tmp = x * (width - leftPad) *1.0 / numSamples;
 					else
