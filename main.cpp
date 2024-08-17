@@ -35,6 +35,7 @@
 #include <unistd.h>
 
 #include <iostream>
+#include <iomanip>
 #include <atomic>
 #include <vector>
 #include <map>
@@ -134,7 +135,7 @@ std::vector<double> getTickmarkSuggestion(double min, double max, int maxNumTick
 
 	// tmp is the dy increment, but scaled by 10^(-exponent) to always be a single
 	// digit in front of the decimal point.
-	double tmp = dy_if_requested_ticks / (pow10(exponent));
+	double tmp = dy_if_requested_ticks / (exp10(exponent));
 
 	//
 	// We want ticks to have one of these forms
@@ -151,7 +152,7 @@ std::vector<double> getTickmarkSuggestion(double min, double max, int maxNumTick
 		}
 
 	}
-	double dy = ticToUse * pow10(exponent);
+	double dy = ticToUse * exp10(exponent);
 
 	//
 	// find closest value below min matching a dy multiplier
@@ -174,13 +175,23 @@ void sdlDisplayThread()
 	SDLEventHandler eventHandler;
 	while(!quit)
 	{
-		win.drawTopText();
 		{
 			std::vector<Waveform> period_waveforms;
 			{
 				std::lock_guard<std::mutex> guard(g_waveforms_mutex);
 				period_waveforms = g_waveforms;
 			}
+
+			// print last sample values along top of window
+			std::ostringstream oss;
+			oss << "ESC = quit, F11 = toggle fullscreen  [ ";
+			for (std::size_t i = 0; i < period_waveforms.size(); i++) {
+				oss << std::fixed << std::setprecision(2) << std::setw(5) << period_waveforms[i].peakWaveform->getLastSample();
+				oss << " ";
+			}
+			oss << "]";
+			win.drawString(0, 0, oss.str().c_str());
+
 
 			double signalMin = std::numeric_limits<double>::max();
 			double signalMax = std::numeric_limits<double>::min();

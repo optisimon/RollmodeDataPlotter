@@ -25,6 +25,7 @@ public:
 		assert(0 && "IWaveformStorage::push(T x, T y) not supported yet");
 	}
 	virtual const std::vector<MinMax<T> >& getWaveform() const = 0;
+	virtual const T getLastSample() const = 0;
 
 	virtual IWaveformStorage<T>* duplicate() const = 0;
 	virtual void clear() = 0;

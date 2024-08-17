@@ -38,16 +38,22 @@ public:
 		}
 
 		_waveform.push_back(MinMax<T>(val, val));
+		_lastSample = val;
 	}
 
 	const std::vector<MinMax<T> >& getWaveform() const {
 		return _waveform;
 	}
 
+	const T getLastSample() const {
+		return _lastSample;
+	}
+
 	IWaveformStorage<T>* duplicate() const
 	{
 		FIFOStorageWaveform* w = new FIFOStorageWaveform(_maxWaveformSize);
 		w->_waveform = _waveform;
+		w->_lastSample = _lastSample;
 		return w;
 	}
 
@@ -59,4 +65,5 @@ public:
 private:
 	size_t _maxWaveformSize;
 	std::vector<MinMax<T> > _waveform; // TODO: Decide what to return. This class would prefer a std::deque, or iterators. Others would prefer std::vector
+	T _lastSample;
 };

@@ -35,6 +35,7 @@ public:
 	void push(T val)
 	{
 		_currentMinMax.update(val);
+		_lastSample = val;
 		if (_skipCounter == _waveformNumSamplesSkip)
 		{
 			if (_waveform.size() < _maxWaveformSize)
@@ -70,6 +71,10 @@ public:
 		return _waveform;
 	}
 
+	const T getLastSample() const {
+		return _lastSample;
+	}
+
 	IWaveformStorage<T>* duplicate() const
 	{
 		CappedPeakStorageWaveform* w = new CappedPeakStorageWaveform(_maxWaveformSize);
@@ -77,6 +82,7 @@ public:
 		w->_skipCounter = _skipCounter;
 		w->_currentMinMax = _currentMinMax;
 		w->_waveform = _waveform;
+		w->_lastSample = _lastSample;
 		return w;
 	}
 
@@ -94,4 +100,5 @@ private:
 	size_t _skipCounter;
 	MinMax<T> _currentMinMax;
 	std::vector<MinMax<T> > _waveform;
+	T _lastSample;
 };
